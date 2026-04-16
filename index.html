@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Buscador de Fotos</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; background: #f5f5f5; padding: 20px; }
+  h1 { font-size: 18px; font-weight: 600; margin-bottom: 16px; color: #333; }
+  .controls { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+  button { padding: 9px 18px; border-radius: 8px; border: none; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .btn-primary { background: #333; color: #fff; }
+  .btn-secondary { background: #fff; color: #333; border: 1px solid #ddd; }
+  .btn-sql { background: #22c55e; color: #fff; }
+  .btn-sql:disabled { opacity: 0.4; cursor: not-allowed; }
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+  .filter-btn { padding: 5px 14px; border-radius: 999px; border: 1.5px solid #ddd; background: #fff; font-size: 12px; cursor: pointer; font-weight: 500; }
+  .filter-btn.active { background: #333; color: #fff; border-color: #333; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+  .card { background: #fff; border-radius: 12px; overflow: hidden; border: 1px solid #e0e0e0; }
+  .card.selected { border: 2.5px solid #22c55e; }
+  .card img { width: 100%; height: 130px; object-fit: cover; display: block; cursor: pointer; }
+  .card-placeholder { width: 100%; height: 130px; background: #f0f0f0; display: flex; align-items: center; justify-content: center; font-size: 28px; }
+  .card-body { padding: 10px; }
+  .card-name { font-size: 12px; font-weight: 600; color: #333; margin-bottom: 4px; }
+  .card-cat { font-size: 11px; color: #888; margin-bottom: 8px; }
+  .card-actions { display: flex; gap: 6px; }
+  .btn-search { flex: 1; padding: 6px; border-radius: 6px; border: 1px solid #ddd; background: #fff; font-size: 11px; cursor: pointer; font-weight: 500; }
+  .thumb-row { display: flex; gap: 4px; padding: 6px 8px 0; overflow-x: auto; }
+  .thumb { width: 40px; height: 40px; object-fit: cover; border-radius: 4px; cursor: pointer; border: 2px solid transparent; flex-shrink: 0; }
+  .thumb.active { border-color: #333; }
+  .btn-select { width: 28px; height: 28px; border-radius: 6px; border: 1px solid #ddd; background: #fff; cursor: pointer; font-size: 14px; }
+  .btn-select.selected { background: #22c55e; color: #fff; border-color: #22c55e; }
+  .sql-area { background: #1e1e1e; color: #a8ff78; border-radius: 12px; padding: 16px; font-family: monospace; font-size: 11px; white-space: pre-wrap; max-height: 300px; overflow-y: auto; margin-top: 16px; }
+  .status { font-size: 12px; color: #666; margin-bottom: 8px; }
+  .progress { font-size: 13px; color: #333; background: #fff; border-radius: 8px; padding: 10px 14px; border: 1px solid #e0e0e0; margin-bottom: 12px; display: none; }
+</style>
+</head>
+<body>
+
+<h1>🔍 Buscador de Fotos — Cardápio</h1>
+
+<div class="controls">
+  <button class="btn-primary" onclick="buscarTodos()">🔄 Buscar fotos para todos</button>
+  <button class="btn-secondary" onclick="selecionarTodos()">☑️ Selecionar todos com foto</button>
+  <button class="btn-secondary" onclick="deselecionarTodos()">✕ Desselecionar todos</button>
+  <button class="btn-sql" id="btn-sql" onclick="gerarSQL()" disabled>📋 Gerar SQL</button>
+</div>
+
+<div class="filters" id="filters"></div>
+<div class="progress" id="progress"></div>
+<div class="status" id="status"></div>
+<div class="grid" id="grid"></div>
+<div class="sql-area" id="sql-area" style="display:none;"></div>
+
+<script>
+const PROXY = 'https://n8n-buscafoto.dahead.easypanel.host';
+
+const produtos = [
+  {id:"7ae93a49-97d3-4a0f-ba0e-f9d4810d2810",nome:"Beirute á moda",categoria:"beirutes"},
+  {id:"5123daf3-6b59-43d0-9d97-78c4faea0be9",nome:"Beirute de atum",categoria:"beirutes"},
+  {id:"2ffbb74d-067e-46a3-9431-2a9a963ae075",nome:"Beirute de calabresa",categoria:"beirutes"},
+  {id:"7c6d2c30-d3e2-4a01-ba64-572e75d9a474",nome:"Beirute de calabresa com catupiry",categoria:"beirutes"},
+  {id:"95a3c096-c971-4b11-9be2-aca00980f706",nome:"Beirute de frango",categoria:"beirutes"},
+  {id:"53645d48-5aae-42e8-af7b-e1ef8a60e79b",nome:"Beirute de lombo",categoria:"beirutes"},
+  {id:"89d59541-a13d-48bc-9e19-b21a99bc6baf",nome:"Beirute de peito de peru",categoria:"beirutes"},
+  {id:"82b05a20-c111-4c10-a33c-a6c416b009da",nome:"Brahma (lata)",categoria:"Cervejas e Chopps"},
+  {id:"5ef8a15c-b704-41bf-b7ad-3378d6516df3",nome:"Budweiser (long neck)",categoria:"Cervejas e Chopps"},
+  {id:"fd0a0c56-188f-4d26-9027-9a3d011e9e58",nome:"Caipirinha",categoria:"Cervejas e Chopps"},
+  {id:"18b51499-83b6-4066-b278-8cf60bf2f9e8",nome:"Chopp Brahma (1 litro)",categoria:"Cervejas e Chopps"},
+  {id:"9a03df7d-8331-4669-a92a-d7d71197e425",nome:"Chopp Brahma (300ml)",categoria:"Cervejas e Chopps"},
+  {id:"78f3c0e3-edd2-415a-8588-775f35b4f3d8",nome:"Corona (long neck)",categoria:"Cervejas e Chopps"},
+  {id:"c99a6e4a-6f16-482c-a630-2365f01b8eb0",nome:"Heineken (600ml)",categoria:"Cervejas e Chopps"},
+  {id:"678bc8be-a2e0-44f7-9ca0-6fb3da993ec7",nome:"Heineken (lata)",categoria:"Cervejas e Chopps"},
+  {id:"fbfd437c-bcf7-4c31-86db-5f35c2345eb0",nome:"Heineken (long neck)",categoria:"Cervejas e Chopps"},
+  {id:"13f566f3-7ad3-403f-9b8e-d50e321dc6ef",nome:"Itaipava (lata)",categoria:"Cervejas e Chopps"},
+  {id:"cc5ebf25-cbb8-43fa-8af8-a8b6cf945392",nome:"Original (600ml)",categoria:"Cervejas e Chopps"},
+  {id:"c0353a81-7f2a-4ab8-948e-8ae477cbd6ef",nome:"Skol (lata)",categoria:"Cervejas e Chopps"},
+  {id:"e8b24272-8f36-4247-9f94-a8073d0f5fb5",nome:"Stella Artois (600ml)",categoria:"Cervejas e Chopps"},
+  {id:"96e0afb7-1703-4ac4-ae71-5497a0139f27",nome:"Fogazza calabresa com catupiry",categoria:"fogazzas"},
+  {id:"b949af25-2346-4d4c-8d46-bc80ee9c48ff",nome:"Fogazza de atum",categoria:"fogazzas"},
+  {id:"1f2f899a-6d0a-46ed-850a-f7c35bf9f720",nome:"Fogazza de bauru",categoria:"fogazzas"},
+  {id:"8d884fa9-5efc-4c18-b3de-da66c3eb5d6c",nome:"Fogazza de calabresa",categoria:"fogazzas"},
+  {id:"3d2be4b1-1a21-4451-85b4-29e9c8257a30",nome:"Fogazza de carne",categoria:"fogazzas"},
+  {id:"5d5b54f5-cf77-4e74-9e28-3c41e993c542",nome:"Fogazza de frango com catupiry",categoria:"fogazzas"},
+  {id:"e9160762-955c-4e9c-970b-166f5cacc197",nome:"Fogazza de palmito",categoria:"fogazzas"},
+  {id:"b59de08b-a8dc-4e1f-8947-a79e81bcc53b",nome:"Fogazza de pizza",categoria:"fogazzas"},
+  {id:"5e82116d-91dc-4f2a-a9bf-d1e611e95e27",nome:"Fogazza de queijo",categoria:"fogazzas"},
+  {id:"677c4ade-eee3-40b9-aa15-0038e1ff0da6",nome:"Fogazza frango",categoria:"fogazzas"},
+  {id:"4bf28d63-6d0b-4736-a2d5-78ce5ddcf39e",nome:"Americano",categoria:"lanches"},
+  {id:"53a99dd7-7787-4e06-925a-5653b8df8daf",nome:"Duplo cheddar bacon",categoria:"lanches"},
+  {id:"f3b92812-b26e-4ca3-abdf-38797220193d",nome:"Misto quente",categoria:"lanches"},
+  {id:"af21269d-ac77-4718-b5ce-11ff1770aee8",nome:"X - bacon",categoria:"lanches"},
+  {id:"45e211f2-5981-4b33-afcd-ea80d2f96bcf",nome:"X - burguer",categoria:"lanches"},
+  {id:"dc2dae7f-b605-4cbc-8395-bbf93b24aeff",nome:"X - calabresa",categoria:"lanches"},
+  {id:"e5cd89f0-2e45-44e4-8d11-384162176c7a",nome:"X - Egg",categoria:"lanches"},
+  {id:"b0b80311-a87c-494d-bf35-cac5db3ad1e4",nome:"X - salada",categoria:"lanches"},
+  {id:"83f70731-ce48-425a-a0b3-7bdcf64be58d",nome:"X - tudo",categoria:"lanches"},
+  {id:"62b918cc-838c-4d44-b713-2dc1c9b6e28f",nome:"Água com gás",categoria:"Refrigerantes"},
+  {id:"925e5d86-9612-47ea-b505-fee616f968c1",nome:"Água sem gás",categoria:"Refrigerantes"},
+  {id:"de1695d5-56f6-4f22-8ebe-59d0af754881",nome:"Coca KS",categoria:"Refrigerantes"},
+  {id:"a4f8cb85-5862-4e6d-84f0-6853fc6c1127",nome:"Coca-Cola 1 litro",categoria:"Refrigerantes"},
+  {id:"ecc5c31c-eeff-430a-aa4e-9a886c398961",nome:"Refrigerante Lata",categoria:"Refrigerantes"},
+  {id:"3f49ef93-0c63-450b-95db-bd09b6d26877",nome:"Tubaína",categoria:"Refrigerantes"},
+  {id:"fd21c7a5-12aa-4af2-82ad-70a55aa6ffe1",nome:"Suco de Abacaxi",categoria:"sucos"},
+  {id:"6b13bc3b-0eff-4e52-99a8-41a5d2224003",nome:"Suco de Abacaxi c/ Hortelã",categoria:"sucos"},
+  {id:"437dbb5a-07f2-4902-a8c5-b133d848093f",nome:"Suco de Açaí",categoria:"sucos"},
+  {id:"679a410a-31bc-4a28-8701-e47cb2364f19",nome:"Suco de Acerola",categoria:"sucos"},
+  {id:"8ec8a832-b30a-42ca-9a64-f625483ff849",nome:"Suco de Caju",categoria:"sucos"},
+  {id:"72522a79-03c4-4fd0-85ea-d754a9ac1469",nome:"Suco de Coco",categoria:"sucos"},
+  {id:"ad622dff-1264-441b-9762-7a0667ad0884",nome:"Suco de Goiabada",categoria:"sucos"},
+  {id:"4e552ffc-2eda-4e1c-ab25-dc817f2ef9a8",nome:"Suco de Laranja Natural",categoria:"sucos"},
+  {id:"b2a79414-8324-4afa-8b9e-2bf2f96fc63b",nome:"Suco de Limão",categoria:"sucos"},
+  {id:"c5cb9f23-c732-4084-886c-aec3338e0535",nome:"Suco de Manga",categoria:"sucos"},
+  {id:"60af465c-b038-417b-bc87-40ea310c9f2d",nome:"Suco de Maracujá",categoria:"sucos"},
+  {id:"806913a1-eefc-482d-abf6-347821934788",nome:"Suco de Morango",categoria:"sucos"},
+];
+
+const estado = {};
+produtos.forEach(p => { estado[p.id] = { fotos: [], selecionada: null, escolhido: false }; });
+
+let filtroAtivo = 'todos';
+
+function getCategorias() {
+  return ['todos', ...new Set(produtos.map(p => p.categoria))];
+}
+
+function renderFiltros() {
+  document.getElementById('filters').innerHTML = getCategorias().map(c =>
+    `<button class="filter-btn ${c === filtroAtivo ? 'active' : ''}" onclick="setFiltro('${c}')">${c}</button>`
+  ).join('');
+}
+
+function setFiltro(cat) {
+  filtroAtivo = cat;
+  renderFiltros();
+  renderGrid();
+}
+
+function produtosFiltrados() {
+  return filtroAtivo === 'todos' ? produtos : produtos.filter(p => p.categoria === filtroAtivo);
+}
+
+function renderGrid() {
+  const grid = document.getElementById('grid');
+  grid.innerHTML = produtosFiltrados().map(p => {
+    const e = estado[p.id];
+    return `
+      <div class="card ${e.escolhido ? 'selected' : ''}" id="card-${p.id}">
+        ${e.selecionada
+          ? `<img src="${e.selecionada}" onclick="proximaFoto('${p.id}')" title="Clique para trocar foto" />`
+          : `<div class="card-placeholder">🍽️</div>`}
+        ${e.fotos.length > 1 ? `
+        <div class="thumb-row">
+          ${e.fotos.map(f => `<img class="thumb ${f === e.selecionada ? 'active' : ''}" src="${f}" onclick="selecionarFoto('${p.id}','${f}')" />`).join('')}
+        </div>` : ''}
+        <div class="card-body">
+          <div class="card-name">${p.nome}</div>
+          <div class="card-cat">${p.categoria}</div>
+          <div class="card-actions">
+            <button class="btn-search" onclick="buscarFoto('${p.id}')">🔍 Buscar</button>
+            <button class="btn-select ${e.escolhido ? 'selected' : ''}" onclick="toggleEscolhido('${p.id}')">${e.escolhido ? '✓' : '+'}</button>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+  atualizarStatus();
+}
+
+function proximaFoto(id) {
+  const e = estado[id];
+  if (e.fotos.length <= 1) return;
+  const idx = e.fotos.indexOf(e.selecionada);
+  e.selecionada = e.fotos[(idx + 1) % e.fotos.length];
+  renderGrid();
+}
+
+function selecionarFoto(id, url) {
+  estado[id].selecionada = url;
+  renderGrid();
+}
+
+function toggleEscolhido(id) {
+  if (!estado[id].selecionada) return;
+  estado[id].escolhido = !estado[id].escolhido;
+  atualizarBtnSQL();
+  renderGrid();
+}
+
+function atualizarStatus() {
+  const comFoto = produtos.filter(p => estado[p.id].selecionada).length;
+  const sel = produtos.filter(p => estado[p.id].escolhido).length;
+  document.getElementById('status').textContent = `${comFoto} com foto | ${sel} selecionados para SQL`;
+}
+
+function atualizarBtnSQL() {
+  document.getElementById('btn-sql').disabled = !produtos.some(p => estado[p.id].escolhido);
+}
+
+async function buscarFoto(id) {
+  const p = produtos.find(x => x.id === id);
+  const query = encodeURIComponent(p.nome + ' food');
+  try {
+    const resp = await fetch(`${PROXY}/buscar?q=${query}`);
+    const data = await resp.json();
+    if (data.results && data.results.length > 0) {
+      estado[id].fotos = data.results.map(r => r.urls.small);
+      estado[id].selecionada = estado[id].fotos[0];
+      estado[id].escolhido = true;
+    }
+  } catch(e) { console.error('Erro:', e); }
+  atualizarBtnSQL();
+  renderGrid();
+}
+
+async function buscarTodos() {
+  const lista = produtosFiltrados();
+  const prog = document.getElementById('progress');
+  prog.style.display = 'block';
+  for (let i = 0; i < lista.length; i++) {
+    prog.textContent = `🔍 Buscando ${i+1}/${lista.length}: ${lista[i].nome}...`;
+    await buscarFoto(lista[i].id);
+    await new Promise(r => setTimeout(r, 400));
+  }
+  prog.textContent = `✅ Concluído!`;
+  setTimeout(() => prog.style.display = 'none', 3000);
+}
+
+function selecionarTodos() {
+  produtosFiltrados().forEach(p => { if (estado[p.id].selecionada) estado[p.id].escolhido = true; });
+  atualizarBtnSQL();
+  renderGrid();
+}
+
+function deselecionarTodos() {
+  produtosFiltrados().forEach(p => { estado[p.id].escolhido = false; });
+  atualizarBtnSQL();
+  renderGrid();
+}
+
+function gerarSQL() {
+  const sel = produtos.filter(p => estado[p.id].escolhido && estado[p.id].selecionada);
+  const sql = sel.map(p => `UPDATE cardapio SET foto_url = '${estado[p.id].selecionada}' WHERE id = '${p.id}';`).join('\n');
+  const area = document.getElementById('sql-area');
+  area.style.display = 'block';
+  area.textContent = sql;
+  navigator.clipboard.writeText(sql).catch(() => {});
+}
+
+renderFiltros();
+renderGrid();
+</script>
+</body>
+</html>
